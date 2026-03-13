@@ -1,35 +1,177 @@
-<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-database-compat.js"></script>
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>RevPCBAI — Contrôle Intelligent PCB</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: 'Segoe UI', sans-serif;
+      background: #0f0f1a;
+      color: #e0e0ff;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      gap: 20px;
+      padding: 20px;
+    }
+    h1 {
+      font-size: 2rem;
+      background: linear-gradient(90deg, #7c3aed, #06b6d4);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+    .panel {
+      background: #1a1a2e;
+      border: 1px solid #7c3aed44;
+      border-radius: 14px;
+      padding: 24px 32px;
+      width: 100%;
+      max-width: 480px;
+      text-align: center;
+    }
+    .status-line {
+      margin: 8px 0 20px;
+      font-size: 0.95rem;
+      color: #8888cc;
+    }
+    .status-line span { color: #06b6d4; font-weight: bold; }
+    #pi-status { color: #06b6d4; font-weight: bold; }
 
-    <script>
-      // Remplace par tes vraies infos Firebase trouvées dans les paramètres de ton projet
-      const firebaseConfig = {
-        apiKey: "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",
-        authDomain: "revpcbai.firebaseapp.com",
-        databaseURL: "https://revpcbai-default-rtdb.firebaseio.com",
-        projectId: "revpcbai",
-        storageBucket: "revpcbai.appspot.com",
-        messagingSenderId: "123456789",
-        appId: "1:123456789:web:abcdef"
-      };
+    .btn-action {
+      background: linear-gradient(135deg, #7c3aed, #06b6d4);
+      color: white;
+      border: none;
+      border-radius: 10px;
+      padding: 14px 40px;
+      font-size: 1.05rem;
+      cursor: pointer;
+      width: 100%;
+      margin: 10px 0;
+      transition: transform 0.2s, box-shadow 0.2s;
+      box-shadow: 0 4px 20px #7c3aed55;
+    }
+    .btn-action:hover { transform: scale(1.03); box-shadow: 0 6px 28px #7c3aedaa; }
+    .btn-action:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
 
-      // Initialisation
-      firebase.initializeApp(firebaseConfig);
-      const database = firebase.database();
+    .stats-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+      margin-top: 20px;
+    }
+    .stat-card {
+      background: #0f0f1a;
+      border: 1px solid #2a2a4a;
+      padding: 12px;
+      border-radius: 10px;
+      font-size: 0.9rem;
+      color: #8888aa;
+    }
+    .stat-card span { display: block; font-size: 1.3rem; color: #06b6d4; font-weight: bold; margin-top: 4px; }
 
-      // La fonction qui fait le lien avec ton Pi
-      function payerInjection() {
-        console.log("Paiement détecté...");
-        
-        // On écrit "1" dans la base de données pour dire au Pi de démarrer
-        database.ref('commande').set({
-          action: "LANCER_INJECTION",
-          prix: "0.50$",
-          timestamp: Date.now()
-        }).then(() => {
-          alert("Paiement de 0.50$ confirmé ! Le Raspberry Pi 5 a reçu l'ordre.");
-        });
-      }
-    </script>
+    .log {
+      background: #0a0a15;
+      border: 1px solid #2a2a4a;
+      border-radius: 10px;
+      padding: 10px 16px;
+      width: 100%;
+      max-width: 480px;
+      font-size: 0.82rem;
+      color: #8888aa;
+      font-family: monospace;
+      min-height: 48px;
+    }
+  </style>
+</head>
+<body>
+
+  <h1>🤖 RevPCBAI</h1>
+
+  <div class="panel">
+    <h3>🛠️ Contrôle Intelligent PCB</h3>
+    <p class="status-line">
+      Statut IA : <span>PRÊT (Hailo-8L Actif)</span><br/>
+      Pi 5 : <span id="pi-status">Connexion...</span>
+    </p>
+
+    <button id="btn-routage" class="btn-action" onclick="lancerRoutage()">
+      🚀 Lancer le Routage Automatique
+    </button>
+
+    <button id="btn-injection" class="btn-action" onclick="lancerInjection()">
+      🔌 Injection USB-C Ghost
+    </button>
+
+    <div class="stats-grid">
+      <div class="stat-card">Température Pi<span><span id="temp">--</span> °C</span></div>
+      <div class="stat-card">Erreurs DRC<span id="errors">0</span></div>
+    </div>
+  </div>
+
+  <div class="log" id="log">En attente d'action...</div>
+
+  <!-- Firebase SDK -->
+  <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-database-compat.js"></script>
+
+  <script>
+    const firebaseConfig = {
+      apiKey:            "AIzaSyAFndakPrXnzxLr5hR_Noa6SnLvsq6nR08",
+      authDomain:        "revpcbaigit-63811139-68c6e.firebaseapp.com",
+      databaseURL:       "https://revpcbaigit-63811139-68c6e-default-rtdb.firebaseio.com",
+      projectId:         "revpcbaigit-63811139-68c6e",
+      storageBucket:     "revpcbaigit-63811139-68c6e.firebasestorage.app",
+      messagingSenderId: "918119158430",
+      appId:             "1:918119158430:web:46b4e602eb85af758de18f"
+    };
+
+    firebase.initializeApp(firebaseConfig);
+    const database = firebase.database();
+
+    function log(msg) {
+      document.getElementById('log').innerText = msg;
+    }
+
+    function disableBtns(state) {
+      document.getElementById('btn-routage').disabled = state;
+      document.getElementById('btn-injection').disabled = state;
+    }
+
+    // ── Écoute statut Pi 5 en temps réel ──────────────────
+    database.ref('status/pi5/message').on('value', (snap) => {
+      document.getElementById('pi-status').innerText = snap.val() || '⏳ En attente...';
+    });
+
+    // ── Écoute température ─────────────────────────────────
+    database.ref('status/temperature').on('value', (snap) => {
+      const t = snap.val();
+      document.getElementById('temp').innerText = t !== null ? t : '--';
+    });
+
+    // ── Envoi commande générique ───────────────────────────
+    function envoyerCommande(type, action) {
+      disableBtns(true);
+      log('📤 Envoi de la commande au Raspberry Pi 5...');
+      database.ref('revpcbai_commands').push({
+        type:      type,
+        action:    action,
+        timestamp: Date.now(),
+        status:    'pending'
+      }).then(() => {
+        log('✅ Commande envoyée ! Le Pi 5 démarre...');
+        setTimeout(() => disableBtns(false), 5000);
+      }).catch((err) => {
+        log('❌ Erreur : ' + err.message);
+        disableBtns(false);
+      });
+    }
+
+    function lancerRoutage()   { envoyerCommande('scan_and_clone_pcb', 'LANCER_ROUTAGE'); }
+    function lancerInjection() { envoyerCommande('scan_and_clone_pcb', 'LANCER_INJECTION'); }
+  </script>
 </body>
 </html>
